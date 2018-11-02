@@ -1,0 +1,26 @@
+{
+  "name": "page-performance-capture",
+  "version": "0.0.1",
+  "description": "Capture page metrics",
+  "main": "index.js",
+  "bin": {
+    "ppc": "cli.js",
+    "page-performance-capture": "cli.js"
+  },
+  "scripts": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JamesPeiris/page-performance-capture.git"
+  },
+  "author": "James Peiris",
+  "bugs": {
+    "url": "https://github.com/JamesPeiris/page-performance-capture/issues"
+  },
+  "homepage": "https://github.com/JamesPeiris/page-performance-capture#readme",
+  "devDependencies": {
+    "commander": "^2.19.0",
+    "puppeteer": "^1.9.0"
+  }
+}

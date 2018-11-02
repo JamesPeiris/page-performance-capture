@@ -1,0 +1,20 @@
+{
+    "pages": [
+        {
+            "repetitions": 2,
+            "url": "http://example.com"
+        },
+        {
+            "repetitions": 1,
+            "url": "http://example.com/about"
+        },
+        {
+            "repetitions": 2,
+            "url": "http://example.com/help"
+        }
+    ],
+    "global": {
+        "repetitions": 1
+    },
+    "timeout": 10
+}
