@@ -1,0 +1,27 @@
+{
+    "pages": [
+        {
+            "url": "http://example.com",
+            "repetitions": 1,
+            "viewPort": {
+                "width": 500,
+                "height": 500
+            }
+        },
+        {
+            "url": "http://example.com/about",
+            "repetitions": 2,
+            "showDevTools": true
+        },
+        {
+            "url": "http://example.com/contact"
+        }
+    ],
+    "defaults": {
+        "repetitions": 1,
+        "viewPort": {
+            "width": 300,
+            "height": 300
+        }
+    }
+}

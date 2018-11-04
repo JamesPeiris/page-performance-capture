@@ -1,125 +1,133 @@
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-const markdownConverter = require('./markdown');
+const getAverages = require('./utils/averages');
+const validateConfig = require('./utils/validate');
+const markdownConverter = require('./utils/markdown');
+const combineConfigs = require('./utils/combine-configs');
+
+const programDefaults = {
+    timeout: 30,
+    repetitions: 3,
+    pageWaitOnLoad: 2,
+    headless: false,
+    showDevTools: false,
+    viewPort: {
+        width: 1440,
+        height: 900,
+    },
+};
 
 // /////////////////////////////////////////////////////////////// //
 
-const startChromium = () => (
+const startChromium = ({ headless, viewPort: { width, height }, showDevTools }) => (
     puppeteer.launch({
-        headless: (process.env.NODE_ENV === 'production')
+        devtools: showDevTools,
+        headless: Boolean(headless),
+        args: [
+            `--window-size=${width},${height}`,
+        ],
     })
 );
 
 // /////////////////////////////////////////////////////////////// //
 
-const startRun = async ({ url }) => {    
-    const browser = await startChromium();
-    
-    const page = await browser.newPage();
+const startRun = async ({
+    url, timeout, viewPort, getRequestStatsFor, pageWaitOnLoad, headless, showDevTools,
+}) => {
+    const browser = await startChromium({ headless, viewPort, showDevTools });
+
+    const [page] = await browser.pages();
+
+    await page.setViewport(viewPort);
+    await page.setDefaultNavigationTimeout(timeout * 1000); // (seconds -> ms)
+
+    const customRequestRegExp = new RegExp(getRequestStatsFor);
+
+    const devToolsResponses = {
+        all: {},
+        custom: {},
+    };
+
+    // Do NOT use with (await page.setRequestInterception(true))
+    const devTools = await page.target().createCDPSession();
+    await devTools.send('Network.enable');
+
+    devTools.on('Network.responseReceived', ({ response, requestId }) => {
+        const responseData = {
+            url: response.url,
+        };
+
+        if (customRequestRegExp.test(response.url)) {
+            devToolsResponses.custom[requestId] = responseData;
+        }
+
+        devToolsResponses.all[requestId] = responseData;
+    });
 
     await page.goto(url);
-    
-    const performanceEntries = JSON.parse(
-        await page.evaluate( () => JSON.stringify(performance.getEntries()) )
+    await page.waitFor(pageWaitOnLoad * 1000); // (seconds -> ms)
+
+    const totalRequests = Object.keys(devToolsResponses.all).length;
+    const totalCustomRequests = Object.keys(devToolsResponses.custom).length;
+
+    const pagePerformanceData = JSON.parse(
+        await page.evaluate(() => JSON.stringify(performance.toJSON())), // eslint-disable-line
     );
-
-    const performanceToJSON = JSON.parse(
-        await page.evaluate( () => JSON.stringify(performance.toJSON()) )
-    );
-
-    // Gets size of ALL network requests combined
-    const networkRequestsSize = performanceEntries.reduce((acc, curr) => {
-        if (!curr.transferSize) return acc;
-        return acc + curr.transferSize;
-    }, 0);
-
-    // Filters for IMAGE ONLY requests
-   const imageNetworkRequests = performanceEntries.filter(({ initiatorType }) => initiatorType === 'img');
-
-    // Gets size of ALL images combined
-    const imageNetworkRequestsSize = imageNetworkRequests.reduce((acc, curr) => acc + curr.transferSize, 0)
 
     const {
         loadEventEnd,
         navigationStart,
-        domContentLoadedEventEnd
-    } = performanceToJSON.timing;
+        domContentLoadedEventEnd,
+    } = pagePerformanceData.timing;
 
-    const pageLoadTime = loadEventEnd - navigationStart / 1000; // (seconds)
-    const domContentLoadedTime = domContentLoadedEventEnd - navigationStart / 1000; // (seconds)
+    const pageLoadTime = (loadEventEnd - navigationStart) / 1000; // (seconds)
+    const domContentLoadedTime = (domContentLoadedEventEnd - navigationStart) / 1000; // (seconds)
 
-    // TODO: Review these stats - mechanisms that consume this are fine, but not sure how trustworthy the data is currently.
     const stats = {
         pageLoadTime,
         domContentLoadedTime,
-        totalFilesDownloaded: performanceEntries.length,
-        totalFilesDownloadedSize: networkRequestsSize / 1024 / 1024, // Bytes -> KB -> MB
-        totalImagesDownloaded: imageNetworkRequests.length,
-        totalImagesDownloadedSize: imageNetworkRequestsSize / 1024 / 1024 // Bytes -> KB -> MB
+        totalRequests,
+        totalCustomRequests,
     };
 
     await browser.close();
 
     return stats;
-}
+};
 
 // /////////////////////////////////////////////////////////////// //
 
-const testPage = async ({ url, repetitions }) => {
+const testPage = async (pageTestConfig) => {
+    const {
+        url,
+        timeout,
+        viewPort,
+        headless,
+        repetitions,
+        showDevTools,
+        pageWaitOnLoad,
+        getRequestStatsFor,
+    } = pageTestConfig;
+
     const iterable = Array.from(Array(repetitions));
 
     // Create a (sequential) chain of promises (of "individual page runs")
     const runs = await iterable.reduce(
         (acc, _) => acc.then(async (statsArray) => {
-            const currentStats = await startRun({ url });
-            return [ ...statsArray, currentStats];
+            const currentStats = await startRun({
+                url, timeout, viewPort, getRequestStatsFor, pageWaitOnLoad, headless, showDevTools,
+            });
+            return [...statsArray, currentStats];
         }),
-        Promise.resolve([])
+        Promise.resolve([]),
     )
-    .catch(err => console.error(err));
-    
-    // Calculate average of each stat from runs
-    const totals = runs.reduce((acc, currentRunStats) => {
-        const {
-            totalFilesDownloaded,
-            totalFilesDownloadedSize,
-            totalImagesDownloaded,
-            totalImagesDownloadedSize
-        } = acc;
-
-        const accumulatedStats = ({
-            pageLoadTime: acc.pageLoadTime + currentRunStats.pageLoadTime,
-            domContentLoadedTime: acc.domContentLoadedTime + currentRunStats.domContentLoadedTime,
-            totalFilesDownloaded: totalFilesDownloaded + currentRunStats.totalFilesDownloaded,
-            totalFilesDownloadedSize: totalFilesDownloadedSize + currentRunStats.totalFilesDownloadedSize,
-            totalImagesDownloaded: totalImagesDownloaded + currentRunStats.totalImagesDownloaded,
-            totalImagesDownloadedSize: totalImagesDownloadedSize + currentRunStats.totalImagesDownloadedSize 
-        });
-
-        return accumulatedStats;
-    }, {
-        pageLoadTime: 0,
-        domContentLoadedTime: 0,
-        totalFilesDownloaded: 0,
-        totalFilesDownloadedSize: 0,
-        totalImagesDownloaded: 0,
-        totalImagesDownloadedSize: 0,
-    });
-    
-    const averages = {
-        pageLoadTime: totals.pageLoadTime / repetitions,
-        totalFilesDownloaded: totals.totalFilesDownloaded / repetitions,
-        totalFilesDownloadedSize: totals.totalFilesDownloadedSize / repetitions,
-        totalImagesDownloaded: totals.totalImagesDownloaded / repetitions,
-        totalImagesDownloadedSize: totals.totalImagesDownloadedSize / repetitions,
-        domContentLoadedTime: totals.domContentLoadedTime / repetitions
-    }
+        .catch(err => console.error(err));
 
     return {
         url,
         runs,
-        averages
+        averages: getAverages({ runs, repetitions }),
     };
 };
 
@@ -138,25 +146,36 @@ module.exports = async ({ config, output = '' }) => {
         } else {
             configData = config;
         }
-    } catch (err) {
-        console.error('Could not read config - please check your config file exists.');
-        return;
+    } catch (error) {
+        console.error('Aborting: Could not read config - please check your config file exists and contains no syntax errors.');
+        process.exit(1);
     }
 
-    const { pages = [] } = configData;
+    try {
+        await validateConfig(configData);
+    } catch (error) {
+        console.error('Aborting: Error(s) with config.');
+        console.error(error.name, error.details);
+        process.exit(1);
+    }
+
+    const { pages = [], defaults: userDefaults = {} } = configData;
+
+    const defaultConfig = combineConfigs(userDefaults, programDefaults);
 
     // Create a (sequential) chain of promises (of "whole pages runs")
     const results = await pages.reduce(
         (acc, page) => acc.then(async (pageStatsArray) => {
-            const currentPageStats = await testPage(page);
-            return [ ...pageStatsArray, currentPageStats];
+            const pageConfig = combineConfigs(page, defaultConfig);
+            const currentPageStats = await testPage(pageConfig);
+            return [...pageStatsArray, currentPageStats];
         }),
-        Promise.resolve([])
+        Promise.resolve([]),
     ).catch(error => error);
 
     if (results.error) {
         console.error(results.error);
-        return;
+        process.exit(1);
     }
 
     const data = { results };
