@@ -1,184 +1,12 @@
 const fs = require('fs');
-const puppeteer = require('puppeteer');
-const lighthouse = require('lighthouse');
-const chromeLauncher = require('chrome-launcher');
 
-const getAverages = require('./utils/averages');
 const validateConfig = require('./utils/validate');
 const markdownConverter = require('./utils/markdown');
+const programDefaults = require('./tdd/config/default');
 const combineConfigs = require('./utils/combine-configs');
-const getAveragesLighthouse = require('./utils/averages-lighthouse');
 
-const programDefaults = {
-    timeout: 30,
-    repetitions: 3,
-    pageWaitOnLoad: 2,
-    headless: false,
-    showDevTools: false,
-    viewPort: {
-        width: 1440,
-        height: 900,
-    },
-};
-
-// /////////////////////////////////////////////////////////////// //
-
-const startChromium = ({ headless, viewPort: { width, height }, showDevTools }) => (
-    puppeteer.launch({
-        devtools: showDevTools,
-        headless: Boolean(headless),
-        args: [
-            `--window-size=${width},${height}`,
-        ],
-    })
-);
-
-// /////////////////////////////////////////////////////////////// //
-
-const startRun = async ({
-    url, timeout, viewPort, getRequestStatsFor, pageWaitOnLoad, headless, showDevTools,
-}) => {
-    const browser = await startChromium({ headless, viewPort, showDevTools });
-
-    const [page] = await browser.pages();
-
-    await page.setViewport(viewPort);
-    await page.setDefaultNavigationTimeout(timeout * 1000); // (seconds -> ms)
-
-    const customRequestRegExp = new RegExp(getRequestStatsFor);
-
-    const devToolsResponses = {
-        all: {},
-        custom: {},
-    };
-
-    // Do NOT use with (await page.setRequestInterception(true))
-    const devTools = await page.target().createCDPSession();
-    await devTools.send('Network.enable');
-
-    devTools.on('Network.responseReceived', ({ response, requestId }) => {
-        const responseData = {
-            url: response.url,
-        };
-
-        if (customRequestRegExp.test(response.url)) {
-            devToolsResponses.custom[requestId] = responseData;
-        }
-
-        devToolsResponses.all[requestId] = responseData;
-    });
-
-    await page.goto(url);
-    await page.waitFor(pageWaitOnLoad * 1000); // (seconds -> ms)
-
-    const totalRequests = Object.keys(devToolsResponses.all).length;
-    const totalCustomRequests = Object.keys(devToolsResponses.custom).length;
-
-    const pagePerformanceData = JSON.parse(
-        await page.evaluate(() => JSON.stringify(performance.toJSON())), // eslint-disable-line
-    );
-
-    const {
-        loadEventEnd,
-        navigationStart,
-        domContentLoadedEventEnd,
-    } = pagePerformanceData.timing;
-
-    const pageLoadTime = (loadEventEnd - navigationStart) / 1000; // (seconds)
-    const domContentLoadedTime = (domContentLoadedEventEnd - navigationStart) / 1000; // (seconds)
-
-    const stats = {
-        pageLoadTime,
-        domContentLoadedTime,
-        totalRequests,
-        totalCustomRequests,
-    };
-
-    await browser.close();
-
-    return stats;
-};
-
-// /////////////////////////////////////////////////////////////// //
-
-const testPage = async (pageTestConfig) => {
-    const {
-        url,
-        timeout,
-        viewPort,
-        headless,
-        repetitions,
-        showDevTools,
-        pageWaitOnLoad,
-        getRequestStatsFor,
-    } = pageTestConfig;
-
-    const iterable = Array.from(Array(repetitions));
-
-    // Create a (sequential) chain of promises (of "individual page runs")
-    const runs = await iterable.reduce(
-        (acc, _) => acc.then(async (statsArray) => {
-            const currentStats = await startRun({
-                url, timeout, viewPort, getRequestStatsFor, pageWaitOnLoad, headless, showDevTools,
-            });
-            return [...statsArray, currentStats];
-        }),
-        Promise.resolve([]),
-    )
-        .catch(err => console.error(err));
-
-    return {
-        url,
-        runs,
-        averages: getAverages({ runs, repetitions }),
-    };
-};
-
-const startRunLighthouse = async ({ url }) => {
-    const chrome = await chromeLauncher.launch();
-
-    const opts = {};
-    opts.port = chrome.port;
-
-    const { lhr } = await lighthouse(url, opts);
-
-    await chrome.kill();
-
-    const results = {};
-
-    Object.keys(lhr.categories)
-        .forEach((category) => {
-            const { title, score } = lhr.categories[category];
-            results[title] = score;
-        });
-
-    return results;
-};
-
-const testPageLighthouse = async (pageTestConfig) => {
-    const { url, repetitions } = pageTestConfig;
-
-    const iterable = Array.from(Array(repetitions));
-
-    // Create a (sequential) chain of promises (of "individual page runs")
-    const runs = await iterable.reduce(
-        (acc, _) => acc.then(async (statsArray) => {
-            const currentStats = await startRunLighthouse({ url });
-            return [...statsArray, currentStats];
-        }),
-        Promise.resolve([]),
-    ).catch(err => console.error(err));
-
-    const averages = getAveragesLighthouse({ runs, repetitions });
-
-    return {
-        url,
-        runs,
-        averages,
-    };
-};
-
-// /////////////////////////////////////////////////////////////// //
+const testPagePPC = require('./ppc');
+const testPageLighthouse = require('./lighthouse');
 
 module.exports = async ({ config, output = '' }) => {
     let configData;
@@ -208,39 +36,64 @@ module.exports = async ({ config, output = '' }) => {
 
     const { pages = [], defaults: userDefaults = {} } = configData;
 
-    const defaultConfig = combineConfigs(userDefaults, programDefaults);
+    const defaultConfig = combineConfigs(programDefaults, userDefaults);
 
     // Create a (sequential) chain of promises (of "whole pages runs")
-    const ppcResults = await pages.reduce(
-        (acc, page) => acc.then(async (pageStatsArray) => {
-            const pageConfig = combineConfigs(page, defaultConfig);
-            const currentPageStats = await testPage(pageConfig);
-            return [...pageStatsArray, currentPageStats];
+    const ppcResults = await defaultConfig.ppc.reduce(
+        (acc, { emulateMobile, throttle }) => acc.then(async (prevResults) => {
+            const innerResults = await pages.reduce(
+                (accPage, page) => accPage.then(async (pageStatsArray) => {
+                    const pageConfig = combineConfigs(defaultConfig, page);
+                    const currentPageStats = await testPagePPC({
+                        ...pageConfig,
+                        throttle,
+                        emulateMobile,
+                    });
+                    return [...pageStatsArray, currentPageStats];
+                }),
+                Promise.resolve([]),
+            ).catch(error => error);
+
+            return [...prevResults, ...innerResults];
         }),
         Promise.resolve([]),
-    ).catch(error => error);
-
-    if (ppcResults.error) {
-        console.error(ppcResults.error);
-        process.exit(1);
-    }
+    );
 
     const data = { ppcResults };
 
+    if (ppcResults.error) {
+        console.error(ppcResults.error); // Does this error obj ever exist?
+        delete data.lighthouseResults;
+        // Don't end in case the Lighthouse results are still generated.
+    }
+
+    // Wow this needs tidying. Find a way to flatten - async/await at the reduce level
     data.lighthouseResults = defaultConfig.lighthouse ? (
-        await pages.reduce(
-            (acc, page) => acc.then(async (pageStatsArray) => {
-                const pageConfig = combineConfigs(page, defaultConfig);
-                const currentPageStats = await testPageLighthouse(pageConfig);
-                return [...pageStatsArray, currentPageStats];
+        await defaultConfig.lighthouse.reduce(
+            (acc, { emulateMobile }) => acc.then(async (prevResults) => {
+                const innerResults = await pages.reduce(
+                    (accPage, page) => accPage.then(async (pageStatsArray) => {
+                        const { url, repetitions } = combineConfigs(defaultConfig, page);
+                        const currentPageStats = await testPageLighthouse({
+                            url,
+                            repetitions,
+                            emulateMobile,
+                        });
+                        return [...pageStatsArray, currentPageStats];
+                    }),
+                    Promise.resolve([]),
+                ).catch(error => error);
+
+                return [...prevResults, ...innerResults];
             }),
             Promise.resolve([]),
-        ).catch(error => error)
+        )
     ) : null;
-    
+
     if (data.lighthouseResults && data.lighthouseResults.error) {
-        console.error(ppcResults.error);
-        process.exit(1);
+        console.error(data.lighthouseResults.error); // Does this error obj ever exist?
+        delete data.lighthouseResults;
+        // Don't end in case the PPC results are still generated.
     }
 
     if (output.slice(-5) === '.json') {

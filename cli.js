@@ -28,4 +28,4 @@ cli.command('run [config]')
         await index({ config, output });
     });
 
-cli.parse(process.argv)
+cli.parse(process.argv);

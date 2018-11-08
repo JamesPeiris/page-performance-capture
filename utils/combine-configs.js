@@ -1,4 +1,4 @@
-module.exports = (config, defaultConfig) => ({
-    ...defaultConfig,
-    ...config,
+module.exports = (baseConfig, overridingConfig) => ({
+    ...baseConfig,
+    ...overridingConfig,
 });

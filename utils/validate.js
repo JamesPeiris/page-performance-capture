@@ -15,7 +15,8 @@ const baseTestConfigItems = {
 
 const baseTestConfig = Joi.object().keys({
     ...baseTestConfigItems,
-    lighthouse: Joi.boolean(),
+    lighthouse: Joi.array(),
+    ppc: Joi.array(),
 });
 const pageTestConfig = Joi.object().keys({
     ...baseTestConfigItems,
