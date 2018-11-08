@@ -127,3 +127,7 @@ Unfortunately, the tools don't exist to obtain accurate results on network reque
 - Attempted to re-request images directly via Node using the captured list from Puppeteer, however CORS policies will make obtaining accurate results impossible for real world sites.
 
 The best recommendation I can make is to set the `showDevTools` to `true` and set the `pageWaitOnLoad` value to as many seconds as you need to capture the size data for network requests directly from the Chrome Dev Tools "Networks" tab.
+
+## Other notes
+Currently `lighthouse` tests are only supported in an all-or-nothing way.
+That is lighthouse cannot yet be specified per-test, only in the default config.

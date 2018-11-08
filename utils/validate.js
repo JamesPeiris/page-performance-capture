@@ -13,15 +13,18 @@ const baseTestConfigItems = {
     showDevTools: Joi.boolean(),
 };
 
-const baseTestConfig = Joi.object().keys(baseTestConfigItems);
+const baseTestConfig = Joi.object().keys({
+    ...baseTestConfigItems,
+    lighthouse: Joi.boolean(),
+});
 const pageTestConfig = Joi.object().keys({
     ...baseTestConfigItems,
     url: Joi.string().required(),
 });
 
 const configSchema = Joi.object().keys({
-    pages: Joi.array().items(pageTestConfig).required(),
     defaults: baseTestConfig,
+    pages: Joi.array().items(pageTestConfig).required(),
 });
 
 module.exports = config => Joi.validate(config, configSchema);

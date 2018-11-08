@@ -1,10 +1,13 @@
 const fs = require('fs');
 const puppeteer = require('puppeteer');
+const lighthouse = require('lighthouse');
+const chromeLauncher = require('chrome-launcher');
 
 const getAverages = require('./utils/averages');
 const validateConfig = require('./utils/validate');
 const markdownConverter = require('./utils/markdown');
 const combineConfigs = require('./utils/combine-configs');
+const getAveragesLighthouse = require('./utils/averages-lighthouse');
 
 const programDefaults = {
     timeout: 30,
@@ -131,6 +134,50 @@ const testPage = async (pageTestConfig) => {
     };
 };
 
+const startRunLighthouse = async ({ url }) => {
+    const chrome = await chromeLauncher.launch();
+
+    const opts = {};
+    opts.port = chrome.port;
+
+    const { lhr } = await lighthouse(url, opts);
+
+    await chrome.kill();
+
+    const results = {};
+
+    Object.keys(lhr.categories)
+        .forEach((category) => {
+            const { title, score } = lhr.categories[category];
+            results[title] = score;
+        });
+
+    return results;
+};
+
+const testPageLighthouse = async (pageTestConfig) => {
+    const { url, repetitions } = pageTestConfig;
+
+    const iterable = Array.from(Array(repetitions));
+
+    // Create a (sequential) chain of promises (of "individual page runs")
+    const runs = await iterable.reduce(
+        (acc, _) => acc.then(async (statsArray) => {
+            const currentStats = await startRunLighthouse({ url });
+            return [...statsArray, currentStats];
+        }),
+        Promise.resolve([]),
+    ).catch(err => console.error(err));
+
+    const averages = getAveragesLighthouse({ runs, repetitions });
+
+    return {
+        url,
+        runs,
+        averages,
+    };
+};
+
 // /////////////////////////////////////////////////////////////// //
 
 module.exports = async ({ config, output = '' }) => {
@@ -164,7 +211,7 @@ module.exports = async ({ config, output = '' }) => {
     const defaultConfig = combineConfigs(userDefaults, programDefaults);
 
     // Create a (sequential) chain of promises (of "whole pages runs")
-    const results = await pages.reduce(
+    const ppcResults = await pages.reduce(
         (acc, page) => acc.then(async (pageStatsArray) => {
             const pageConfig = combineConfigs(page, defaultConfig);
             const currentPageStats = await testPage(pageConfig);
@@ -173,12 +220,28 @@ module.exports = async ({ config, output = '' }) => {
         Promise.resolve([]),
     ).catch(error => error);
 
-    if (results.error) {
-        console.error(results.error);
+    if (ppcResults.error) {
+        console.error(ppcResults.error);
         process.exit(1);
     }
 
-    const data = { results };
+    const data = { ppcResults };
+
+    data.lighthouseResults = defaultConfig.lighthouse ? (
+        await pages.reduce(
+            (acc, page) => acc.then(async (pageStatsArray) => {
+                const pageConfig = combineConfigs(page, defaultConfig);
+                const currentPageStats = await testPageLighthouse(pageConfig);
+                return [...pageStatsArray, currentPageStats];
+            }),
+            Promise.resolve([]),
+        ).catch(error => error)
+    ) : null;
+    
+    if (data.lighthouseResults && data.lighthouseResults.error) {
+        console.error(ppcResults.error);
+        process.exit(1);
+    }
 
     if (output.slice(-5) === '.json') {
         console.info(`Outputting stats to ${output}`);
