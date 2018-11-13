@@ -9,7 +9,5 @@ module.exports = {
         height: 900,
     },
     lighthouse: [],
-    ppc: [
-        { emulateMobile: false, throttle: false },
-    ],
+    ppc: [],
 };

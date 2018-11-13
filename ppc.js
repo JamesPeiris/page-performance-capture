@@ -28,6 +28,7 @@ const startRun = async ({
     showDevTools,
     throttle,
     emulateMobile,
+    cookie,
 }) => {
     const browser = await startChromium({ headless, viewPort, showDevTools });
 
@@ -37,6 +38,10 @@ const startRun = async ({
         await page.emulate(nexus5X);
     } else {
         await page.setViewport(viewPort);
+    }
+
+    if (cookie) {
+        await page.setCookie(cookie);
     }
 
     await page.setDefaultNavigationTimeout(timeout * 1000); // (seconds -> ms)

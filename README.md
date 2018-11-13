@@ -74,7 +74,11 @@ This structure can be replicated across items in an array to specify the tests:
             },
             "headless": false,
             "pageWaitOnLoad": 2,
-            "showDevTools": false
+            "showDevTools": false,
+            "cookie": {
+                "name": "cookieName",
+                "value": "value"
+            }
         }
     ]
 }
@@ -95,6 +99,7 @@ The defaults are as follows:
 | `pageWaitOnLoad`     | Specifies how many seconds to keep a page open after page load before capturing stats | Number  | No        | `2`                            | Per-page & Defaults |
 | `headless`           | Specifies whether to run the tests with/without a visible user interface              | Boolean | No        | `false`                        | Per-page & Defaults |
 | `showDevTools`       | Specifies whether to auto-open Chrome Dev Tools for the test                          | Boolean | No        | `false`                        | Per-page & Defaults |
+| `cookie`             | Specifies a cookie to set for the page/s under test                                   | Object  | No        | `undefined`                    | Per-page & Defaults |
 | `lighthouse`         | Specifies an array of lighthouse config objects                                       | Array   | No        | `[]`                           | Defaults only       |
 | `ppc`                | Specifies an array of page-performance-capture config objects                         | Array   | No        | `[{ emulateMobile: false, throttle: false } }]` | Defaults only |
 
@@ -127,6 +132,14 @@ Thie can be achieved by using a root-level `defaults` object in the config, whic
         "viewPort": {
             "width": 1440,
             "height": 500
+        },
+        "cookie": {
+            "name": "cookieName",
+            "value": "value",
+            "domain": "example.com",
+            "path": "/",
+            "secure": false,
+            "httpOnly": false,
         },
         "lighthouse": [
             { "emulateMobile": true },

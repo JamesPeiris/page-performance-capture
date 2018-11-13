@@ -26,6 +26,7 @@
   "homepage": "https://github.com/JamesPeiris/page-performance-capture#readme",
   "dependencies": {
     "chrome-launcher": "^0.10.5",
+    "chrome-remote-interface": "^0.26.1",
     "commander": "^2.19.0",
     "eslint-plugin-jest": "^22.0.0",
     "joi": "^14.0.4",

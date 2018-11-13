@@ -73,9 +73,10 @@ module.exports = async ({ config, output = '' }) => {
             (acc, { emulateMobile }) => acc.then(async (prevResults) => {
                 const innerResults = await pages.reduce(
                     (accPage, page) => accPage.then(async (pageStatsArray) => {
-                        const { url, repetitions } = combineConfigs(defaultConfig, page);
+                        const { url, cookie, repetitions } = combineConfigs(defaultConfig, page);
                         const currentPageStats = await testPageLighthouse({
                             url,
+                            cookie,
                             repetitions,
                             emulateMobile,
                         });

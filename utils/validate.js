@@ -11,6 +11,17 @@ const baseTestConfigItems = {
     pageWaitOnLoad: Joi.number().min(1),
     headless: Joi.boolean(),
     showDevTools: Joi.boolean(),
+    cookie: Joi.object().keys({
+        name: Joi.string().required(),
+        value: Joi.string().required(),
+        url: Joi.string(),
+        domain: Joi.string(),
+        path: Joi.string(),
+        expires: Joi.number(),
+        httpOnly: Joi.boolean(),
+        secure: Joi.boolean(),
+        sameSite: Joi.string().valid(['Strict', 'Lax']),
+    }).or('url', 'domain'),
 };
 
 const baseTestConfig = Joi.object().keys({
