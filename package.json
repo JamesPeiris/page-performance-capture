@@ -2,6 +2,7 @@
   "name": "page-performance-capture",
   "version": "0.4.0",
   "description": "Capture page metrics",
+  "license": "MIT",
   "main": "index.js",
   "bin": {
     "ppc": "cli.js",
